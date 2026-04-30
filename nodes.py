@@ -702,8 +702,8 @@ class MotionctrlSampleSimple:
         torch.save(intermediates['x_inter'], x_inter_path)
         torch.save(intermediates['pred_x0'], pred_x0_path)
         ret = save_results(batch_variants, fps=10,traj=traj_list,draw_traj_dot=draw_traj_dot,cameras=rt_list,draw_camera_dot=draw_camera_dot,context_overlap=context_overlap)
-        #print(ret)
-        return ret
+        ret = ret.contiguous()
+        return (ret,)
         
 
 class MotionctrlSample:
@@ -858,8 +858,8 @@ class MotionctrlSample:
         batch_variants = batch_variants[0]
         
         ret = save_results(batch_variants, fps=10,traj=traj,draw_traj_dot=draw_traj_dot,cameras=RT_list,draw_camera_dot=draw_camera_dot)
-        #print(ret)
-        return ret
+        ret = ret.contiguous()
+        return (ret,)
         
         
 class ImageSelector:
