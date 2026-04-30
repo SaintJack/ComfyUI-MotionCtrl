@@ -614,13 +614,28 @@ class MotionctrlSampleSimple:
                 pts = [[int(x), int(y)] for x, y in pts]
                 pts = process_points(pts, frames=frame_length)
                 pts256 = [[int(256 * x / 1024), int(256 * y / 1024)] for x, y in pts]
-                p0x, p0y = pts256[0]
-                warp_scale = 0.25
+                pts256_np = np.array(pts256, dtype=np.float32)
+                cx = float(np.mean(pts256_np[:, 0]))
+                cy = float(np.mean(pts256_np[:, 1]))
+                dxs = pts256_np[:, 0] - cx
+                dys = pts256_np[:, 1] - cy
+
+                kernel = np.array([1, 2, 3, 2, 1], dtype=np.float32)
+                kernel = kernel / float(kernel.sum())
+                pad = len(kernel) // 2
+                dxs = np.convolve(np.pad(dxs, (pad, pad), mode="edge"), kernel, mode="valid")
+                dys = np.convolve(np.pad(dys, (pad, pad), mode="edge"), kernel, mode="valid")
+
+                warp_scale = 0.15
+                rot_scale = 0.12
                 frames_np = []
                 for i in range(frame_length):
-                    dx = (pts256[i][0] - p0x) * warp_scale
-                    dy = (pts256[i][1] - p0y) * warp_scale
-                    M = np.array([[1.0, 0.0, dx], [0.0, 1.0, dy]], dtype=np.float32)
+                    dx = float(dxs[i]) * warp_scale
+                    dy = float(dys[i]) * warp_scale
+                    angle = float(dxs[i]) * rot_scale
+                    M = cv2.getRotationMatrix2D((128, 128), angle, 1.0).astype(np.float32)
+                    M[0, 2] += dx
+                    M[1, 2] += dy
                     warped = cv2.warpAffine(
                         img0,
                         M,
