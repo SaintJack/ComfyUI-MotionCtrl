@@ -115,13 +115,13 @@
         1234,
         "randomize",
         1,
-        4.5,
+        4.0,
         800,
         true,
         0,
         1,
         "https://chaojie.github.io/ComfyUI-MotionCtrl/tools/draw.html",
-        0.35,
+        0.85,
         false,
         false
       ]

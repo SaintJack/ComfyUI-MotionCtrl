@@ -649,7 +649,12 @@ class MotionctrlSampleSimple:
                 tail = 0.0
             if tail > 1.0:
                 tail = 1.0
-            mask = torch.full((1, 1, frame_length, 1, 1), tail, device=device, dtype=torch.float32)
+            base_tail = min(0.15, tail)
+            if frame_length <= 1:
+                mask = torch.full((1, 1, frame_length, 1, 1), 1.0, device=device, dtype=torch.float32)
+            else:
+                ramp = torch.linspace(base_tail, tail, steps=frame_length, device=device, dtype=torch.float32)
+                mask = ramp.view(1, 1, frame_length, 1, 1)
             mask[:, :, :k] = 1.0
 
         rand_frames = frame_length - context_overlap
