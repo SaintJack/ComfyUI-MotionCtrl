@@ -1,0 +1,162 @@
+{
+  "last_node_id": 6,
+  "last_link_id": 15,
+  "nodes": [
+    {
+      "id": 1,
+      "type": "Load Motionctrl Checkpoint",
+      "pos": [420, -120],
+      "size": { "0": 315, "1": 142 },
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "outputs": [
+        { "name": "model", "type": "MOTIONCTRL", "links": [1, 2], "shape": 3, "slot_index": 0 },
+        { "name": "clip", "type": "EMBEDDER", "links": [3], "shape": 3, "slot_index": 1 },
+        { "name": "vae", "type": "VAE", "links": [4], "shape": 3, "slot_index": 2 },
+        { "name": "ddim_sampler", "type": "SAMPLER", "links": [5], "shape": 3, "slot_index": 3 }
+      ],
+      "properties": { "Node name for S&R": "Load Motionctrl Checkpoint" },
+      "widgets_values": ["motionctrl.pth", 16]
+    },
+    {
+      "id": 2,
+      "type": "LoadImage",
+      "pos": [420, 120],
+      "size": { "0": 315, "1": 314 },
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "outputs": [
+        { "name": "IMAGE", "type": "IMAGE", "links": [14], "shape": 3, "slot_index": 0 },
+        { "name": "MASK", "type": "MASK", "links": [], "shape": 3, "slot_index": 1 }
+      ],
+      "properties": { "Node name for S&R": "LoadImage" },
+      "widgets_values": [""]
+    },
+    {
+      "id": 3,
+      "type": "Load Motion Traj Preset",
+      "pos": [420, 480],
+      "size": { "0": 315, "1": 82 },
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "outputs": [
+        { "name": "POINTS", "type": "STRING", "links": [6], "shape": 3, "slot_index": 0 }
+      ],
+      "properties": { "Node name for S&R": "Load Motion Traj Preset" },
+      "widgets_values": ["shake_2", 16]
+    },
+    {
+      "id": 4,
+      "type": "Motionctrl Cond",
+      "pos": [860, 120],
+      "size": { "0": 400, "1": 320 },
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [
+        { "name": "model", "type": "MOTIONCTRL", "link": 1 },
+        {
+          "name": "traj",
+          "type": "STRING",
+          "link": 6,
+          "widget": { "name": "traj" }
+        }
+      ],
+      "outputs": [
+        { "name": "positive", "type": "CONDITIONING", "links": [7], "shape": 3, "slot_index": 0 },
+        { "name": "negative", "type": "CONDITIONING", "links": [8], "shape": 3, "slot_index": 1 },
+        { "name": "traj_list", "type": "TRAJ_LIST", "links": [9], "shape": 3, "slot_index": 2 },
+        { "name": "rt_list", "type": "RT_LIST", "links": [10], "shape": 3, "slot_index": 3 },
+        { "name": "traj", "type": "TRAJ_FEATURES", "links": [11], "shape": 3, "slot_index": 4 },
+        { "name": "rt", "type": "RT", "links": [12], "shape": 3, "slot_index": 5 },
+        { "name": "noise_shape", "type": "NOISE_SHAPE", "links": [13], "shape": 3, "slot_index": 6 }
+      ],
+      "properties": { "Node name for S&R": "Motionctrl Cond" },
+      "widgets_values": [
+        "a sunflower swaying in the wind, close-up, natural light, high quality",
+        "blur, haze, deformed iris, deformed pupils, semi-realistic, cgi, 3d, render, sketch, cartoon, drawing, anime, mutated hands and fingers, deformed, distorted, disfigured, poorly drawn, bad anatomy, wrong anatomy, extra limb, missing limb, floating limbs, disconnected limbs, mutation, mutated, ugly, disgusting, amputation",
+        "[[1,0,0,0,0,1,0,0,0,0,1,0.2]]",
+        "[[512,512]]",
+        "control object trajectory",
+        0
+      ]
+    },
+    {
+      "id": 5,
+      "type": "Motionctrl Sample Simple",
+      "pos": [1380, 120],
+      "size": { "0": 360, "1": 420 },
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "inputs": [
+        { "name": "model", "type": "MOTIONCTRL", "link": 2 },
+        { "name": "clip", "type": "EMBEDDER", "link": 3 },
+        { "name": "vae", "type": "VAE", "link": 4 },
+        { "name": "ddim_sampler", "type": "SAMPLER", "link": 5 },
+        { "name": "positive", "type": "CONDITIONING", "link": 7 },
+        { "name": "negative", "type": "CONDITIONING", "link": 8 },
+        { "name": "traj_list", "type": "TRAJ_LIST", "link": 9 },
+        { "name": "rt_list", "type": "RT_LIST", "link": 10 },
+        { "name": "traj", "type": "TRAJ_FEATURES", "link": 11 },
+        { "name": "rt", "type": "RT", "link": 12 },
+        { "name": "noise_shape", "type": "NOISE_SHAPE", "link": 13 },
+        { "name": "init_image", "type": "IMAGE", "link": 14 }
+      ],
+      "outputs": [
+        { "name": "IMAGE", "type": "IMAGE", "links": [15], "shape": 3, "slot_index": 0 }
+      ],
+      "properties": { "Node name for S&R": "Motionctrl Sample Simple" },
+      "widgets_values": [
+        50,
+        1234,
+        "randomize",
+        1,
+        7.5,
+        800,
+        true,
+        1,
+        "https://chaojie.github.io/ComfyUI-MotionCtrl/tools/draw.html",
+        false,
+        false
+      ]
+    },
+    {
+      "id": 6,
+      "type": "PreviewImage",
+      "pos": [1840, 160],
+      "size": [210, 246],
+      "flags": {},
+      "order": 5,
+      "mode": 0,
+      "inputs": [
+        { "name": "images", "type": "IMAGE", "link": 15 }
+      ],
+      "properties": { "Node name for S&R": "PreviewImage" }
+    }
+  ],
+  "links": [
+    [1, 1, 0, 4, 0, "MOTIONCTRL"],
+    [2, 1, 0, 5, 0, "MOTIONCTRL"],
+    [3, 1, 1, 5, 1, "EMBEDDER"],
+    [4, 1, 2, 5, 2, "VAE"],
+    [5, 1, 3, 5, 3, "SAMPLER"],
+    [6, 3, 0, 4, 2, "STRING"],
+    [7, 4, 0, 5, 4, "CONDITIONING"],
+    [8, 4, 1, 5, 5, "CONDITIONING"],
+    [9, 4, 2, 5, 6, "TRAJ_LIST"],
+    [10, 4, 3, 5, 7, "RT_LIST"],
+    [11, 4, 4, 5, 8, "TRAJ_FEATURES"],
+    [12, 4, 5, 5, 9, "RT"],
+    [13, 4, 6, 5, 10, "NOISE_SHAPE"],
+    [14, 2, 0, 5, 11, "IMAGE"],
+    [15, 5, 0, 6, 0, "IMAGE"]
+  ],
+  "groups": [],
+  "config": {},
+  "extra": {},
+  "version": 0.4
+}

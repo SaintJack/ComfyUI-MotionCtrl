@@ -10,7 +10,6 @@ einops
 scikit-learn
 taming-transformers-rom1504
 pandas
-pandas
 fairscale
 psutil==5.9.5
 annotated-types==0.5.0

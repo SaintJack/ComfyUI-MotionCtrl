@@ -1,6 +1,6 @@
 {
-  "last_node_id": 59,
-  "last_link_id": 143,
+  "last_node_id": 60,
+  "last_link_id": 144,
   "nodes": [
     {
       "id": 56,
@@ -197,6 +197,11 @@
           "name": "noise_shape",
           "type": "NOISE_SHAPE",
           "link": 140
+        },
+        {
+          "name": "init_image",
+          "type": "IMAGE",
+          "link": 144
         }
       ],
       "outputs": [
@@ -217,6 +222,11 @@
         12,
         1028,
         "randomize",
+        1,
+        7.5,
+        800,
+        true,
+        1,
         "https://chaojie.github.io/ComfyUI-MotionCtrl/tools/draw.html",
         false,
         false
@@ -354,9 +364,50 @@
       },
       "widgets_values": [
         "a rose swaying in the wind",
+        "blur, haze, deformed iris, deformed pupils, semi-realistic, cgi, 3d, render, sketch, cartoon, drawing, anime, mutated hands and fingers, deformed, distorted, disfigured, poorly drawn, bad anatomy, wrong anatomy, extra limb, missing limb, floating limbs, disconnected limbs, mutation, mutated, ugly, disgusting, amputation",
         "[[1,0,0,0,0,1,0,0,0,0,1,0.2]]",
         "[[117, 102]]",
-        "control both camera and object motion"
+        "control both camera and object motion",
+        0
+      ]
+    },
+    {
+      "id": 60,
+      "type": "LoadImage",
+      "pos": [
+        430,
+        -400
+      ],
+      "size": {
+        "0": 315,
+        "1": 314
+      },
+      "flags": {},
+      "order": -1,
+      "mode": 0,
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            144
+          ],
+          "shape": 3,
+          "slot_index": 0
+        },
+        {
+          "name": "MASK",
+          "type": "MASK",
+          "links": [],
+          "shape": 3,
+          "slot_index": 1
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "LoadImage"
+      },
+      "widgets_values": [
+        ""
       ]
     }
   ],
@@ -479,6 +530,14 @@
       0,
       45,
       0,
+      "IMAGE"
+    ],
+    [
+      144,
+      60,
+      0,
+      59,
+      11,
       "IMAGE"
     ]
   ],

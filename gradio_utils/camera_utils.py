@@ -95,7 +95,22 @@ def combine_camera_motion(RT_0, RT_1):
 
     return np.concatenate([RT_0, RT_1], axis=0)
 
-def process_camera(camera_dict):
+def process_camera(camera_dict, camera_args=None, num_frames=16):
+    speed = camera_dict["speed"]
+    motion_list = camera_dict["motion"]
+    mode = camera_dict["mode"]
+
+    if mode == "Customized Mode 3: RAW Camera Poses":
+        if camera_args is None:
+            raise ValueError("RAW Camera Poses 模式需要 camera_args")
+        RT = camera_args.strip().split()
+        if len(RT) != num_frames * 12:
+            raise ValueError("The number of camera poses should be equal to the number of frames")
+        RT = [float(x) for x in RT]
+        RT = np.array(RT).reshape(-1, 3, 4)
+        RT[:, :, -1] = RT[:, :, -1] * np.array([1.5, 1, 1.3]) * speed
+        return RT
+
     # "First A then B", "Both A and B", "Custom"
     if camera_dict['complex'] is not None:
         with open(COMPLEX_CAMERA[camera_dict['complex']]) as f:
@@ -105,21 +120,18 @@ def process_camera(camera_dict):
         return RT
 
 
-    motion_list = camera_dict['motion']
-    mode = camera_dict['mode']
-    speed = camera_dict['speed']
     print(len(motion_list))
     if len(motion_list) == 0:
         angle = np.array([0,0,0])
         T = np.array([0,0,0])
-        RT = get_camera_motion(angle, T, speed, 16)
+        RT = get_camera_motion(angle, T, speed, num_frames)
 
 
     elif len(motion_list) == 1:
         angle = np.array(CAMERA[motion_list[0]]["angle"])
         T = np.array(CAMERA[motion_list[0]]["T"])
         print(angle, T)
-        RT = get_camera_motion(angle, T, speed, 16)
+        RT = get_camera_motion(angle, T, speed, num_frames)
         
         
     
@@ -127,18 +139,18 @@ def process_camera(camera_dict):
         if mode == "Customized Mode 1: First A then B":
             angle = np.array(CAMERA[motion_list[0]]["angle"]) 
             T = np.array(CAMERA[motion_list[0]]["T"]) 
-            RT_0 = get_camera_motion(angle, T, speed, 8)
+            RT_0 = get_camera_motion(angle, T, speed, num_frames // 2)
 
             angle = np.array(CAMERA[motion_list[1]]["angle"]) 
             T = np.array(CAMERA[motion_list[1]]["T"]) 
-            RT_1 = get_camera_motion(angle, T, speed, 8)
+            RT_1 = get_camera_motion(angle, T, speed, num_frames - (num_frames // 2))
 
             RT = combine_camera_motion(RT_0, RT_1)
 
         elif mode == "Customized Mode 2: Both A and B":
             angle = np.array(CAMERA[motion_list[0]]["angle"]) + np.array(CAMERA[motion_list[1]]["angle"])
             T = np.array(CAMERA[motion_list[0]]["T"]) + np.array(CAMERA[motion_list[1]]["T"])
-            RT = get_camera_motion(angle, T, speed, 16)
+            RT = get_camera_motion(angle, T, speed, num_frames)
 
 
     # return RT.reshape(-1, 12)

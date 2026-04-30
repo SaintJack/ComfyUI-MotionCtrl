@@ -1,6 +1,6 @@
 {
-  "last_node_id": 30,
-  "last_link_id": 56,
+  "last_node_id": 31,
+  "last_link_id": 57,
   "nodes": [
     {
       "id": 9,
@@ -925,6 +925,11 @@
           "name": "noise_shape",
           "type": "NOISE_SHAPE",
           "link": 56
+        },
+        {
+          "name": "init_image",
+          "type": "IMAGE",
+          "link": 57
         }
       ],
       "outputs": [
@@ -946,6 +951,11 @@
         30,
         1874,
         "randomize",
+        1,
+        7.5,
+        800,
+        true,
+        1,
         "https://chaojie.github.io/ComfyUI-MotionCtrl/tools/draw.html",
         false,
         false
@@ -1042,9 +1052,50 @@
       },
       "widgets_values": [
         "a girl jump",
+        "blur, haze, deformed iris, deformed pupils, semi-realistic, cgi, 3d, render, sketch, cartoon, drawing, anime, mutated hands and fingers, deformed, distorted, disfigured, poorly drawn, bad anatomy, wrong anatomy, extra limb, missing limb, floating limbs, disconnected limbs, mutation, mutated, ugly, disgusting, amputation",
         "[[1,0,0,-0.2,0,1,0,0,0,0,1,0]]",
         "[[84,752],[96,556],[128,424],[156,320],[184,252],[232,188],[272,144],[328,108],[384,92],[440,92],[488,88],[620,116],[680,116],[764,132],[804,144],[872,252],[884,344],[916,440],[904,568],[888,628],[828,708],[760,764],[704,816],[616,848],[516,876],[420,876],[336,876],[288,868],[196,844],[136,816],[88,792],[68,740]]",
-        "control both camera and object motion"
+        "control both camera and object motion",
+        0
+      ]
+    },
+    {
+      "id": 31,
+      "type": "LoadImage",
+      "pos": [
+        -1130,
+        320
+      ],
+      "size": {
+        "0": 315,
+        "1": 314
+      },
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "outputs": [
+        {
+          "name": "IMAGE",
+          "type": "IMAGE",
+          "links": [
+            57
+          ],
+          "shape": 3,
+          "slot_index": 0
+        },
+        {
+          "name": "MASK",
+          "type": "MASK",
+          "links": [],
+          "shape": 3,
+          "slot_index": 1
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "LoadImage"
+      },
+      "widgets_values": [
+        ""
       ]
     },
     {
@@ -1375,6 +1426,14 @@
       29,
       10,
       "NOISE_SHAPE"
+    ],
+    [
+      57,
+      31,
+      0,
+      29,
+      11,
+      "IMAGE"
     ]
   ],
   "groups": [],

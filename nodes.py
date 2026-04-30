@@ -16,6 +16,7 @@ import cv2
 import numpy as np
 import torch
 import torchvision
+from pathlib import Path
 ## note: decord should be imported after torch
 from omegaconf import OmegaConf
 from pytorch_lightning import seed_everything
@@ -26,12 +27,101 @@ from .main.evaluation.motionctrl_prompts_camerapose_trajs import (
 from .main.evaluation.motionctrl_inference import motionctrl_sample,save_images,load_camera_pose,load_trajs,load_model_checkpoint,post_prompt,DEFAULT_NEGATIVE_PROMPT
 from .utils.utils import instantiate_from_config
 from .gradio_utils.traj_utils import process_points,get_flow
+from .gradio_utils.camera_utils import CAMERA, process_camera as build_camera_rt
 from PIL import Image, ImageFont, ImageDraw
 from .gradio_utils.utils import vis_camera
 from io import BytesIO
 
+PLUGIN_DIR = Path(__file__).resolve().parent
+
+def _plugin_path(*parts: str) -> str:
+    return str(PLUGIN_DIR.joinpath(*parts))
+
+def _find_official_motionctrl_dir() -> Path | None:
+    for parent in [PLUGIN_DIR] + list(PLUGIN_DIR.parents)[:6]:
+        candidate = parent / "official" / "MotionCtrl"
+        if candidate.exists() and candidate.is_dir():
+            return candidate
+    return None
+
+def _list_camera_preset_options() -> list[str]:
+    legacy = [
+        "U", "D", "L", "R",
+        "O", "O_0.2x", "O_0.4x", "O_1.0x", "O_2.0x",
+        "Round-RI", "Round-RI_90", "Round-RI-120", "Round-ZoomIn",
+        "SPIN-ACW-60", "SPIN-CW-60",
+        "I", "I_0.2x", "I_0.4x", "I_1.0x", "I_2.0x",
+        "1424acd0007d40b5", "d971457c81bca597", "018f7907401f2fef", "088b93f15ca8745d", "b133a504fc90a2d1",
+    ]
+    seen = set()
+    out: list[str] = []
+
+    def add(x: str):
+        if x not in seen:
+            seen.add(x)
+            out.append(x)
+
+    for x in legacy:
+        add(x)
+
+    examples_dir = Path(_plugin_path("examples", "camera_poses"))
+    if examples_dir.exists():
+        for p in sorted(examples_dir.glob("test_camera_*.json")):
+            stem = p.stem
+            suffix = stem[len("test_camera_"):] if stem.startswith("test_camera_") else stem
+            add(suffix)
+
+    official_dir = _find_official_motionctrl_dir()
+    if official_dir is not None:
+        ds_dir = official_dir / "dataset" / "camera_poses"
+        for group in ("basic", "realestate10k"):
+            gdir = ds_dir / group
+            if gdir.exists():
+                for p in sorted(gdir.glob("test_camera_*.json")):
+                    stem = p.stem
+                    suffix = stem[len("test_camera_"):] if stem.startswith("test_camera_") else stem
+                    add(f"{group}/{suffix}")
+
+    return out
+
+def _loads_json(value: str, name: str):
+    try:
+        return json.loads(value)
+    except Exception as e:
+        raise ValueError(f"{name} 不是合法的 JSON: {e}") from e
+
+def _normalize_points_to_1024(points):
+    if not isinstance(points, list) or len(points) == 0:
+        raise ValueError("traj 必须是非空的点列表，例如 [[x,y], ...]")
+    parsed = []
+    max_v = 0.0
+    for p in points:
+        if not isinstance(p, (list, tuple)) or len(p) != 2:
+            raise ValueError("traj 点格式错误，必须是 [x,y]")
+        x, y = p[0], p[1]
+        try:
+            x = float(x)
+            y = float(y)
+        except Exception as e:
+            raise ValueError(f"traj 点坐标必须为数字: {e}") from e
+        parsed.append([x, y])
+        max_v = max(max_v, abs(x), abs(y))
+    if max_v <= 1.5:
+        scale = 1024.0
+    elif max_v <= 256.0 * 1.5:
+        scale = 4.0
+    else:
+        scale = 1.0
+    out = [[x * scale, y * scale] for x, y in parsed]
+    return out
+
 def process_camera(camera_pose_str,frame_length):
-    RT=json.loads(camera_pose_str)
+    RT=_loads_json(camera_pose_str, "camera")
+    if not isinstance(RT, list) or len(RT) == 0:
+        raise ValueError("camera 必须是非空的帧列表，例如 [[...12], ...]")
+    for f in RT:
+        if not isinstance(f, list) or len(f) != 12:
+            raise ValueError("camera 每帧必须是长度为 12 的数组（3x4 展平）")
     for i in range(frame_length):
         if len(RT)<=i:
             RT.append(RT[len(RT)-1])
@@ -44,7 +134,12 @@ def process_camera(camera_pose_str,frame_length):
 
 
 def process_camera_list(camera_pose_str,frame_length):
-    RT=json.loads(camera_pose_str)
+    RT=_loads_json(camera_pose_str, "camera")
+    if not isinstance(RT, list) or len(RT) == 0:
+        raise ValueError("camera 必须是非空的帧列表，例如 [[...12], ...]")
+    for f in RT:
+        if not isinstance(f, list) or len(f) != 12:
+            raise ValueError("camera 每帧必须是长度为 12 的数组（3x4 展平）")
     for i in range(frame_length):
         if len(RT)<=i:
             RT.append(RT[len(RT)-1])
@@ -57,15 +152,13 @@ def process_camera_list(camera_pose_str,frame_length):
 
     
 def process_traj(points_str,frame_length):
-    points=json.loads(points_str)
-    for i in range(frame_length):
-        if len(points)<=i:
-            points.append(points[len(points)-1])
+    points=_loads_json(points_str, "traj")
+    points = _normalize_points_to_1024(points)
+    points = [[int(x), int(y)] for x, y in points]
+    points = process_points(points, frames=frame_length)
     xy_range = 1024
-    #points = process_points(points,frame_length)
     points = [[int(256*x/xy_range), int(256*y/xy_range)] for x,y in points]
-    
-    optical_flow = get_flow(points,frame_length)
+    optical_flow = get_flow(points, video_len=frame_length)
     # optical_flow = torch.tensor(optical_flow).to(device)
 
     return optical_flow
@@ -93,7 +186,7 @@ def save_results(video, fps=10,traj="[]",draw_traj_dot=False,cameras=[],draw_cam
         draw = ImageDraw.Draw(image)
         #draw.ellipse((0,0,255,255),fill=(255,0,0), outline=(255,0,0))
         if draw_traj_dot:
-            traj_list=json.loads(traj)
+            traj_list=_normalize_points_to_1024(_loads_json(traj, "traj"))
             
             #print(traj_point)
             size=3
@@ -106,20 +199,17 @@ def save_results(video, fps=10,traj="[]",draw_traj_dot=False,cameras=[],draw_cam
                 else:
                     draw.ellipse((traj_point[0]/4-size,traj_point[1]/4-size,traj_point[0]/4+size,traj_point[1]/4+size),fill=(255,255,255), outline=(255,255,255))
             
-        if draw_traj_dot:
+        if draw_camera_dot:
             fig = vis_camera(cameras,1,i)
             camimg=Image.open(BytesIO(fig.to_image('png',256,256)))
             image.paste(camimg,(0,0),camimg.convert('RGBA'))
         
-        image_tensor_out = torch.tensor(np.array(image).astype(np.float32) / 255.0)  # Convert back to CxHxW
-        image_tensor_out = torch.unsqueeze(image_tensor_out, 0)
+        image_tensor_out = torch.from_numpy(np.array(image).astype(np.float32) / 255.0)
         outframes.append(image_tensor_out)
         #writer.append_data(img)
 
     #writer.close()
-    return torch.cat(tuple(outframes[context_overlap:]), dim=0).unsqueeze(0)
-
-MOTION_CAMERA_OPTIONS = ["U", "D", "L", "R", "O", "O_0.2x", "O_0.4x", "O_1.0x", "O_2.0x", "O_0.2x", "O_0.2x", "Round-RI", "Round-RI_90", "Round-RI-120", "Round-ZoomIn", "SPIN-ACW-60", "SPIN-CW-60", "I", "I_0.2x", "I_0.4x", "I_1.0x", "I_2.0x", "1424acd0007d40b5", "d971457c81bca597", "018f7907401f2fef", "088b93f15ca8745d", "b133a504fc90a2d1"]
+    return torch.stack(outframes[context_overlap:], dim=0)
 
 MOTION_TRAJ_OPTIONS = ["curve_1", "curve_2", "curve_3", "curve_4", "horizon_2", "shake_1", "shake_2", "shaking_10"]
 
@@ -146,7 +236,7 @@ class LoadMotionCameraPreset:
     def INPUT_TYPES(cls):
         return {
             "required": {
-                "motion_camera": (MOTION_CAMERA_OPTIONS,),
+                "motion_camera": (_list_camera_preset_options(),),
             }
         }
         
@@ -157,11 +247,71 @@ class LoadMotionCameraPreset:
     
     def load_motion_camera_preset(self, motion_camera):
         data="[]"
-        comfy_path = os.path.dirname(folder_paths.__file__)
-        with open(f'{comfy_path}/custom_nodes/ComfyUI-MotionCtrl/examples/camera_poses/test_camera_{motion_camera}.json') as f:
+        preset_path = None
+        if "/" in motion_camera:
+            group, suffix = motion_camera.split("/", 1)
+            official_dir = _find_official_motionctrl_dir()
+            if official_dir is not None:
+                candidate = official_dir / "dataset" / "camera_poses" / group / f"test_camera_{suffix}.json"
+                if candidate.exists():
+                    preset_path = str(candidate)
+        else:
+            candidate = Path(_plugin_path("examples", "camera_poses", f"test_camera_{motion_camera}.json"))
+            if candidate.exists():
+                preset_path = str(candidate)
+
+        if preset_path is None:
+            raise FileNotFoundError(f"找不到相机预设: {motion_camera}")
+
+        with open(preset_path, encoding="utf-8") as f:
             data = f.read()
         
         return (data,)
+
+
+CAMERA_COMBINE_MODE = [
+    "Customized Mode 1: First A then B",
+    "Customized Mode 2: Both A and B",
+    "Customized Mode 3: RAW Camera Poses",
+]
+
+CAMERA_MOTION_OPTIONS = [k for k in CAMERA.keys() if not k.startswith("base_")]
+
+class MotionctrlBuildCamera:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "mode": (CAMERA_COMBINE_MODE,),
+                "speed": ("FLOAT", {"default": 1.0}),
+                "frame_length": ("INT", {"default": 16}),
+                "motion_a": (["None"] + CAMERA_MOTION_OPTIONS,),
+                "motion_b": (["None"] + CAMERA_MOTION_OPTIONS,),
+                "raw_camera_poses": ("STRING", {"multiline": True, "default": ""}),
+            }
+        }
+
+    RETURN_TYPES = ("STRING",)
+    RETURN_NAMES = ("POINTS",)
+    FUNCTION = "build_camera"
+    CATEGORY = "motionctrl"
+
+    def build_camera(self, mode, speed, frame_length, motion_a, motion_b, raw_camera_poses):
+        motion_list = []
+        if motion_a != "None":
+            motion_list.append(motion_a)
+        if motion_b != "None":
+            motion_list.append(motion_b)
+
+        camera_dict = {
+            "speed": float(speed),
+            "motion": motion_list,
+            "mode": mode,
+            "complex": None,
+        }
+        RT = build_camera_rt(camera_dict, camera_args=raw_camera_poses, num_frames=int(frame_length))
+        RT12 = np.array(RT).reshape(-1, 12).tolist()
+        return (json.dumps(RT12),)
         
 
 class LoadMotionTrajPreset:
@@ -180,8 +330,10 @@ class LoadMotionTrajPreset:
     CATEGORY = "motionctrl"
     
     def load_motion_traj_preset(self, motion_traj, frame_length):
-        comfy_path = os.path.dirname(folder_paths.__file__)
-        points = read_points(f'{comfy_path}/custom_nodes/ComfyUI-MotionCtrl/examples/trajectories/{motion_traj}.txt',frame_length)
+        preset_path = _plugin_path("examples", "trajectories", f"{motion_traj}.txt")
+        if not os.path.exists(preset_path):
+            raise FileNotFoundError(f"找不到轨迹预设文件: {preset_path}")
+        points = read_points(preset_path,frame_length)
         return (json.dumps(points),)
 
 MODE = ["control camera poses", "control object trajectory", "control both camera and object motion"]
@@ -204,14 +356,15 @@ class MotionctrlLoader:
         gpu_num=1
         gpu_no=0
         ckpt_path = folder_paths.get_full_path("checkpoints", ckpt_name)
-        comfy_path = os.path.dirname(folder_paths.__file__)
-        config_path = os.path.join(comfy_path, 'custom_nodes/ComfyUI-MotionCtrl/configs/inference/config_both.yaml')
+        config_path = _plugin_path("configs", "inference", "config_both.yaml")
         args={"ckpt_path":f"{ckpt_path}","adapter_ckpt":None,"base":f"{config_path}","condtype":"both","prompt_dir":None,"n_samples":1,"ddim_steps":50,"ddim_eta":1.0,"bs":1,"height":256,"width":256,"unconditional_guidance_scale":1.0,"unconditional_guidance_scale_temporal":None,"seed":1234,"cond_T":800}
         
         config = OmegaConf.load(args["base"])
         OmegaConf.update(config, "model.params.unet_config.params.temporal_length", frame_length)
         model_config = config.pop("model", OmegaConf.create())
         model = instantiate_from_config(model_config)
+        if not torch.cuda.is_available():
+            raise RuntimeError("MotionCtrl 推理需要 CUDA GPU。请使用支持 CUDA 的 PyTorch 环境启动 ComfyUI。")
         model = model.cuda(gpu_no)
         assert os.path.exists(args["ckpt_path"]), f'Error: checkpoint {args["ckpt_path"]} Not Found!'
         print(f'Loading checkpoint from {args["ckpt_path"]}')
@@ -230,6 +383,7 @@ class MotionctrlCond:
             "required": {
                 "model": ("MOTIONCTRL",),
                 "prompt": ("STRING", {"multiline": True, "default":"a rose swaying in the wind"}),
+                "negative_prompt": ("STRING", {"multiline": True, "default": DEFAULT_NEGATIVE_PROMPT}),
                 "camera": ("STRING", {"multiline": True, "default":"[[1,0,0,0,0,1,0,0,0,0,1,0.2]]"}),
                 "traj": ("STRING", {"multiline": True, "default":"[[117, 102]]"}),
                 "infer_mode": (MODE, {"default":"control both camera and object motion"}),
@@ -242,10 +396,9 @@ class MotionctrlCond:
     FUNCTION = "load_cond"
     CATEGORY = "motionctrl"
 
-    def load_cond(self, model, prompt, camera, traj,infer_mode,context_overlap):
-        comfy_path = os.path.dirname(folder_paths.__file__)
-        camera_align_file = os.path.join(comfy_path, 'custom_nodes/ComfyUI-MotionCtrl/camera.json')
-        traj_align_file = os.path.join(comfy_path, 'custom_nodes/ComfyUI-MotionCtrl/traj.json')
+    def load_cond(self, model, prompt, negative_prompt, camera, traj,infer_mode,context_overlap):
+        camera_align_file = _plugin_path("camera.json")
+        traj_align_file = _plugin_path("traj.json")
         frame_length=model.temporal_length
 
         camera_align=json.loads(camera)
@@ -344,7 +497,7 @@ class MotionctrlCond:
             traj_features = None
         
         uc = None
-        prompts = batch_size * [DEFAULT_NEGATIVE_PROMPT]
+        prompts = batch_size * [negative_prompt]
         uc = model.get_learned_conditioning(prompts)
         if traj_features is not None:
             un_motion = model.get_traj_features(torch.zeros_like(trajs))
@@ -373,10 +526,16 @@ class MotionctrlSampleSimple:
                 "rt": ("RT",),
                 "steps": ("INT", {"default": 50}),
                 "seed": ("INT", {"default": 1234}),
+                "eta": ("FLOAT", {"default": 1.0}),
+                "guidance_scale": ("FLOAT", {"default": 7.5}),
+                "cond_T": ("INT", {"default": 800}),
+                "deterministic": ("BOOLEAN", {"default": True}),
                 "noise_shape":("NOISE_SHAPE",),
                 "context_overlap": ("INT", {"default": 0, "min": 0, "max": 32}),
             },
             "optional": {
+                "init_image": ("IMAGE",),
+                "keep_init_frames": ("INT", {"default": 1, "min": 0, "max": 32}),
                 "traj_tool": ("STRING",{"multiline": False, "default": "https://chaojie.github.io/ComfyUI-MotionCtrl/tools/draw.html"}),
                 "draw_traj_dot": ("BOOLEAN", {"default": False}),#, "label_on": "draw", "label_off": "not draw"
                 "draw_camera_dot": ("BOOLEAN", {"default": False}),
@@ -387,17 +546,16 @@ class MotionctrlSampleSimple:
     FUNCTION = "run_inference"
     CATEGORY = "motionctrl"
 
-    def run_inference(self,model,clip,vae,ddim_sampler,positive, negative,traj_list,rt_list,traj,rt,steps,seed,noise_shape,context_overlap,traj_tool="https://chaojie.github.io/ComfyUI-MotionCtrl/tools/draw.html",draw_traj_dot=False,draw_camera_dot=False):
+    def run_inference(self,model,clip,vae,ddim_sampler,positive, negative,traj_list,rt_list,traj,rt,steps,seed,eta,guidance_scale,cond_T,deterministic,noise_shape,context_overlap,init_image=None,keep_init_frames=1,traj_tool="https://chaojie.github.io/ComfyUI-MotionCtrl/tools/draw.html",draw_traj_dot=False,draw_camera_dot=False):
         frame_length=model.temporal_length
         device = model.betas.device
         print(f'frame_length{frame_length}')
         #noise_shape = [1, 4, 16, 32, 32]
-        unconditional_guidance_scale = 7.5
+        unconditional_guidance_scale = guidance_scale
         unconditional_guidance_scale_temporal = None
         n_samples = 1
         ddim_steps= steps
-        ddim_eta=1.0
-        cond_T=800
+        ddim_eta=eta
         #seed = args["seed"]
 
         if n_samples < 1:
@@ -405,6 +563,9 @@ class MotionctrlSampleSimple:
         if n_samples > 4:
             n_samples = 4
 
+        if deterministic:
+            torch.backends.cudnn.benchmark = False
+            torch.backends.cudnn.deterministic = True
         seed_everything(seed)
 
         batch_images=[]
@@ -413,42 +574,98 @@ class MotionctrlSampleSimple:
 
         x0=None
         x_T=None
+        mask=None
         pre_x0=None
         pre_x_T=None
 
-        comfy_path = os.path.dirname(folder_paths.__file__)
-        pred_x0_path = os.path.join(comfy_path, 'custom_nodes/ComfyUI-MotionCtrl/pred_x0.pt')
-        x_inter_path = os.path.join(comfy_path, 'custom_nodes/ComfyUI-MotionCtrl/x_inter.pt')
-        randt=torch.randn([noise_shape[0],noise_shape[1],frame_length-context_overlap,noise_shape[3],noise_shape[4]], device=device)
+        pred_x0_path = _plugin_path("pred_x0.pt")
+        x_inter_path = _plugin_path("x_inter.pt")
+        if context_overlap < 0:
+            context_overlap = 0
+        if context_overlap >= frame_length:
+            context_overlap = frame_length - 1
+
+        if context_overlap == 0:
+            if os.path.exists(pred_x0_path):
+                os.remove(pred_x0_path)
+            if os.path.exists(x_inter_path):
+                os.remove(x_inter_path)
+
+        if init_image is not None and keep_init_frames > 0:
+            if context_overlap > 0:
+                raise ValueError("init_image 与 context_overlap 暂不支持同时启用")
+            img0 = init_image[0].detach().cpu().numpy()
+            img0 = (img0 * 255.0).clip(0, 255).astype(np.uint8)
+            img0 = cv2.resize(img0, (256, 256), interpolation=cv2.INTER_LANCZOS4)
+            img0 = img0.astype(np.float32) / 255.0
+            img0 = torch.from_numpy(img0).to(device=device, dtype=torch.float32)
+            img0 = img0 * 2.0 - 1.0
+            img0 = img0.permute(2, 0, 1).unsqueeze(0).unsqueeze(2)
+            img_video = img0.repeat(1, 1, frame_length, 1, 1)
+            x0 = model.encode_first_stage(img_video)
+            k = int(keep_init_frames)
+            if k >= frame_length:
+                k = frame_length
+            mask = torch.zeros((1, 1, frame_length, 1, 1), device=device, dtype=torch.float32)
+            mask[:, :, :k] = 1.0
+
+        rand_frames = frame_length - context_overlap
+        randt=torch.randn([noise_shape[0],noise_shape[1],rand_frames,noise_shape[3],noise_shape[4]], device=device)
         randt_np=randt.detach().cpu().numpy()
 
         if context_overlap>0:
             if os.path.exists(pred_x0_path):
-                pre_x0=torch.load(pred_x0_path)
-                pre_x0_np=pre_x0[-1].detach().cpu().numpy()
-                pre_x0_np_overlap = np.concatenate((pre_x0_np[:,:,-context_overlap:], randt_np), axis=2)
-                x0=torch.tensor(pre_x0_np_overlap, device=device)
+                pre_x0=torch.load(pred_x0_path, map_location="cpu")
+                pre_x0_last = pre_x0[-1] if isinstance(pre_x0, (list, tuple)) else pre_x0
+                pre_x0_np=pre_x0_last.detach().cpu().numpy()
+                ok = (
+                    pre_x0_np.ndim == 5
+                    and pre_x0_np.shape[0] == noise_shape[0]
+                    and pre_x0_np.shape[1] == noise_shape[1]
+                    and pre_x0_np.shape[3] == noise_shape[3]
+                    and pre_x0_np.shape[4] == noise_shape[4]
+                    and pre_x0_np.shape[2] >= context_overlap
+                )
+                if ok:
+                    pre_x0_np_overlap = np.concatenate((pre_x0_np[:,:,-context_overlap:], randt_np), axis=2)
+                    x0=torch.tensor(pre_x0_np_overlap, device=device)
+                else:
+                    os.remove(pred_x0_path)
             if os.path.exists(x_inter_path):
-                pre_x_T=torch.load(x_inter_path)
-                pre_x_T_np=pre_x_T[-1].detach().cpu().numpy()
-                pre_x_T_np_overlap = np.concatenate((pre_x_T_np[:,:,-context_overlap:], randt_np), axis=2)
-                x_T=torch.tensor(pre_x_T_np_overlap, device=device)
+                pre_x_T=torch.load(x_inter_path, map_location="cpu")
+                pre_x_T_last = pre_x_T[-1] if isinstance(pre_x_T, (list, tuple)) else pre_x_T
+                pre_x_T_np=pre_x_T_last.detach().cpu().numpy()
+                ok = (
+                    pre_x_T_np.ndim == 5
+                    and pre_x_T_np.shape[0] == noise_shape[0]
+                    and pre_x_T_np.shape[1] == noise_shape[1]
+                    and pre_x_T_np.shape[3] == noise_shape[3]
+                    and pre_x_T_np.shape[4] == noise_shape[4]
+                    and pre_x_T_np.shape[2] >= context_overlap
+                )
+                if ok:
+                    pre_x_T_np_overlap = np.concatenate((pre_x_T_np[:,:,-context_overlap:], randt_np), axis=2)
+                    x_T=torch.tensor(pre_x_T_np_overlap, device=device)
+                else:
+                    os.remove(x_inter_path)
         
         for _ in range(n_samples):
             if ddim_sampler is not None:
+                uc = None if unconditional_guidance_scale == 1.0 else negative
                 samples, intermediates = ddim_sampler.sample(S=ddim_steps,
                                                 conditioning=positive,
                                                 batch_size=noise_shape[0],
                                                 shape=noise_shape[1:],
                                                 verbose=False,
                                                 unconditional_guidance_scale=unconditional_guidance_scale,
-                                                unconditional_conditioning=negative,
+                                                unconditional_conditioning=uc,
                                                 eta=ddim_eta,
                                                 temporal_length=noise_shape[2],
                                                 conditional_guidance_scale_temporal=unconditional_guidance_scale_temporal,
                                                 features_adapter=traj,
                                                 pose_emb=rt,
                                                 cond_T=cond_T,
+                                                mask=mask,
                                                 x0=x0,
                                                 x_T=x_T
                                                 )        
@@ -509,9 +726,9 @@ class MotionctrlSample:
         gpu_num=1
         gpu_no=0
         ckpt_path = folder_paths.get_full_path("checkpoints", ckpt_name)
-        comfy_path = os.path.dirname(folder_paths.__file__)
-        config_path = os.path.join(comfy_path, 'custom_nodes/ComfyUI-MotionCtrl/configs/inference/config_both.yaml')
+        config_path = _plugin_path("configs", "inference", "config_both.yaml")
         args={"savedir":f'./output/both_seed20230211',"ckpt_path":f"{ckpt_path}","adapter_ckpt":None,"base":f"{config_path}","condtype":"both","prompt_dir":None,"n_samples":1,"ddim_steps":50,"ddim_eta":1.0,"bs":1,"height":256,"width":256,"unconditional_guidance_scale":1.0,"unconditional_guidance_scale_temporal":None,"seed":1234,"cond_T":800,"save_imgs":True,"cond_dir":"./custom_nodes/ComfyUI-MotionCtrl/examples/"}
+        args["cond_dir"] = _plugin_path("examples")
         
         prompts = prompt
         RT = process_camera(camera,frame_length).reshape(-1,12)
@@ -706,6 +923,7 @@ NODE_CLASS_MAPPINGS = {
     "Motionctrl Sample Simple":MotionctrlSampleSimple,
     "Load Motion Camera Preset":LoadMotionCameraPreset,
     "Load Motion Traj Preset":LoadMotionTrajPreset,
+    "Build Motion Camera": MotionctrlBuildCamera,
     "Select Image Indices": ImageSelector,
     "Load Motionctrl Checkpoint": MotionctrlLoader,
     "Motionctrl Cond": MotionctrlCond,

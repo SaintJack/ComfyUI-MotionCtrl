@@ -43,13 +43,13 @@ def get_provided_traj(traj_name):
 blur_kernel = bivariate_Gaussian(99, 10, 10, 0, grid=None, isotropic=True)
 
 def process_points(points,frames=16):
-    defualt_points = [[512,512]]*16
+    defualt_points = [[512,512]]*frames
 
     if len(points) < 2:
         return defualt_points
     elif len(points) >= frames:
         skip = len(points)//frames
-        return points[::skip][:15] + points[-1:]
+        return points[::skip][:frames-1] + points[-1:]
     else:
         insert_num = frames - len(points)
         insert_num_dict = {}
