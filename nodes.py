@@ -544,6 +544,7 @@ class MotionctrlSampleSimple:
             "optional": {
                 "init_image": ("IMAGE",),
                 "keep_init_frames": ("INT", {"default": 1, "min": 0, "max": 32}),
+                "tail_init_strength": ("FLOAT", {"default": 0.15, "min": 0.0, "max": 1.0}),
                 "traj_tool": ("STRING",{"multiline": False, "default": "https://chaojie.github.io/ComfyUI-MotionCtrl/tools/draw.html"}),
                 "draw_traj_dot": ("BOOLEAN", {"default": False}),#, "label_on": "draw", "label_off": "not draw"
                 "draw_camera_dot": ("BOOLEAN", {"default": False}),
@@ -554,7 +555,7 @@ class MotionctrlSampleSimple:
     FUNCTION = "run_inference"
     CATEGORY = "motionctrl"
 
-    def run_inference(self,model,clip,vae,ddim_sampler,positive, negative,traj_list,rt_list,traj,rt,steps,seed,eta,guidance_scale,cond_T,deterministic,noise_shape,context_overlap,init_image=None,keep_init_frames=1,traj_tool="https://chaojie.github.io/ComfyUI-MotionCtrl/tools/draw.html",draw_traj_dot=False,draw_camera_dot=False):
+    def run_inference(self,model,clip,vae,ddim_sampler,positive, negative,traj_list,rt_list,traj,rt,steps,seed,eta,guidance_scale,cond_T,deterministic,noise_shape,context_overlap,init_image=None,keep_init_frames=1,tail_init_strength=0.15,traj_tool="https://chaojie.github.io/ComfyUI-MotionCtrl/tools/draw.html",draw_traj_dot=False,draw_camera_dot=False):
         frame_length=model.temporal_length
         device = model.betas.device
         print(f'frame_length{frame_length}')
@@ -614,7 +615,12 @@ class MotionctrlSampleSimple:
             k = int(keep_init_frames)
             if k >= frame_length:
                 k = frame_length
-            mask = torch.zeros((1, 1, frame_length, 1, 1), device=device, dtype=torch.float32)
+            tail = float(tail_init_strength)
+            if tail < 0.0:
+                tail = 0.0
+            if tail > 1.0:
+                tail = 1.0
+            mask = torch.full((1, 1, frame_length, 1, 1), tail, device=device, dtype=torch.float32)
             mask[:, :, :k] = 1.0
 
         rand_frames = frame_length - context_overlap

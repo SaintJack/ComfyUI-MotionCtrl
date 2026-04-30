@@ -76,7 +76,7 @@
       ],
       "properties": { "Node name for S&R": "Motionctrl Cond" },
       "widgets_values": [
-        "a sunflower swaying in the wind, close-up, natural light, high quality",
+        "a flower swaying in the wind, same flower as the input image, close-up, natural light, high quality",
         "blur, haze, deformed iris, deformed pupils, semi-realistic, cgi, 3d, render, sketch, cartoon, drawing, anime, mutated hands and fingers, deformed, distorted, disfigured, poorly drawn, bad anatomy, wrong anatomy, extra limb, missing limb, floating limbs, disconnected limbs, mutation, mutated, ugly, disgusting, amputation",
         "[[1,0,0,0,0,1,0,0,0,0,1,0.2]]",
         "[[512,512]]",
@@ -115,11 +115,12 @@
         1234,
         "randomize",
         1,
-        7.5,
+        4.5,
         800,
         true,
         0,
         1,
+        0.35,
         "https://chaojie.github.io/ComfyUI-MotionCtrl/tools/draw.html",
         false,
         false
