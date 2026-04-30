@@ -606,11 +606,40 @@ class MotionctrlSampleSimple:
             img0 = init_image[0].detach().cpu().numpy()
             img0 = (img0 * 255.0).clip(0, 255).astype(np.uint8)
             img0 = cv2.resize(img0, (256, 256), interpolation=cv2.INTER_LANCZOS4)
-            img0 = img0.astype(np.float32) / 255.0
-            img0 = torch.from_numpy(img0).to(device=device, dtype=torch.float32)
-            img0 = img0 * 2.0 - 1.0
-            img0 = img0.permute(2, 0, 1).unsqueeze(0).unsqueeze(2)
-            img_video = img0.repeat(1, 1, frame_length, 1, 1)
+            if img0.ndim == 2:
+                img0 = np.stack([img0, img0, img0], axis=-1)
+            img_video_np = None
+            try:
+                pts = _normalize_points_to_1024(_loads_json(traj_list, "traj"))
+                pts = [[int(x), int(y)] for x, y in pts]
+                pts = process_points(pts, frames=frame_length)
+                pts256 = [[int(256 * x / 1024), int(256 * y / 1024)] for x, y in pts]
+                p0x, p0y = pts256[0]
+                warp_scale = 0.25
+                frames_np = []
+                for i in range(frame_length):
+                    dx = (pts256[i][0] - p0x) * warp_scale
+                    dy = (pts256[i][1] - p0y) * warp_scale
+                    M = np.array([[1.0, 0.0, dx], [0.0, 1.0, dy]], dtype=np.float32)
+                    warped = cv2.warpAffine(
+                        img0,
+                        M,
+                        (256, 256),
+                        flags=cv2.INTER_LANCZOS4,
+                        borderMode=cv2.BORDER_REFLECT_101,
+                    )
+                    frames_np.append(warped)
+                img_video_np = np.stack(frames_np, axis=0)
+            except Exception:
+                img_video_np = None
+
+            if img_video_np is None:
+                img_video_np = np.repeat(img0[None, ...], frame_length, axis=0)
+
+            img_video = img_video_np.astype(np.float32) / 255.0
+            img_video = torch.from_numpy(img_video).to(device=device, dtype=torch.float32)
+            img_video = img_video * 2.0 - 1.0
+            img_video = img_video.permute(0, 3, 1, 2).unsqueeze(0).permute(0, 2, 1, 3, 4)
             x0 = model.encode_first_stage(img_video)
             k = int(keep_init_frames)
             if k >= frame_length:
