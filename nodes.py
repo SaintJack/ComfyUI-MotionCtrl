@@ -182,6 +182,8 @@ def save_results(video, fps=10,traj="[]",draw_traj_dot=False,cameras=[],draw_cam
     #writer = imageio.get_writer(path, format='mp4', mode='I', fps=fps)
     for i in range(grid.shape[0]):
         img = grid[i].numpy()
+        if img.ndim == 2:
+            img = np.stack([img, img, img], axis=-1)
         image=Image.fromarray(img)
         draw = ImageDraw.Draw(image)
         #draw.ellipse((0,0,255,255),fill=(255,0,0), outline=(255,0,0))
@@ -204,12 +206,18 @@ def save_results(video, fps=10,traj="[]",draw_traj_dot=False,cameras=[],draw_cam
             camimg=Image.open(BytesIO(fig.to_image('png',256,256)))
             image.paste(camimg,(0,0),camimg.convert('RGBA'))
         
-        image_tensor_out = torch.from_numpy(np.array(image).astype(np.float32) / 255.0)
+        arr = np.array(image)
+        if arr.ndim == 2:
+            arr = np.stack([arr, arr, arr], axis=-1)
+        image_tensor_out = torch.from_numpy(arr.astype(np.float32) / 255.0).contiguous()
         outframes.append(image_tensor_out)
         #writer.append_data(img)
 
     #writer.close()
-    return torch.stack(outframes[context_overlap:], dim=0)
+    out = torch.stack(outframes[context_overlap:], dim=0)
+    if out.ndim == 3:
+        out = out.unsqueeze(-1).repeat(1, 1, 1, 3)
+    return out
 
 MOTION_TRAJ_OPTIONS = ["curve_1", "curve_2", "curve_3", "curve_4", "horizon_2", "shake_1", "shake_2", "shaking_10"]
 

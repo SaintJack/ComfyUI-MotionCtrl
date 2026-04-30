@@ -4,11 +4,80 @@
 
 ## Install
 
-1. Clone this repo into custom_nodes directory of ComfyUI location
+### Install into ComfyUI (custom_nodes)
 
-2. Run pip install -r requirements.txt
+1. Locate your ComfyUI folder (the one containing `main.py`).
 
-3. Download the weights of MotionCtrl  [motionctrl.pth](https://huggingface.co/TencentARC/MotionCtrl/blob/main/motionctrl.pth) and put it to `ComfyUI/models/checkpoints`
+2. Copy / clone this folder into `ComfyUI/custom_nodes/` so the final path looks like:
+
+- `ComfyUI/custom_nodes/ComfyUI-MotionCtrl/`
+
+Example (git):
+
+```bash
+cd <ComfyUI>
+cd custom_nodes
+git clone <this-repo-url> ComfyUI-MotionCtrl
+```
+
+3. Install Python dependencies in the same Python environment ComfyUI uses:
+
+```bash
+cd ComfyUI/custom_nodes/ComfyUI-MotionCtrl
+pip install -r requirements.txt
+```
+
+4. Download MotionCtrl weight `motionctrl.pth` and put it to:
+
+- `ComfyUI/models/checkpoints/motionctrl.pth`
+
+5. Restart ComfyUI. The nodes will appear under category `motionctrl`.
+
+### Update from a previous version
+
+If you already have an older `ComfyUI-MotionCtrl` installed:
+
+1. Stop ComfyUI.
+2. Go to the plugin folder:
+
+```bash
+cd <ComfyUI>/custom_nodes/ComfyUI-MotionCtrl
+```
+
+3. Update the code:
+
+- If you installed via git:
+
+```bash
+git pull
+```
+
+- If you installed by copying files: replace the whole `ComfyUI/custom_nodes/ComfyUI-MotionCtrl/` folder with the new version.
+
+4. Re-install dependencies (safe to run again):
+
+```bash
+pip install -r requirements.txt
+```
+
+5. Restart ComfyUI.
+
+Notes:
+
+- If ComfyUI still shows old nodes, delete `__pycache__` under `ComfyUI/custom_nodes/ComfyUI-MotionCtrl/` and restart.
+- Workflows saved with older node signatures may need to be reloaded after updating.
+
+### Notes (Windows)
+
+- If you run ComfyUI via a bundled/portable Python, run `pip` from that Python (so dependencies are installed to the correct environment).
+- If ComfyUI fails to import a dependency, check the console log at startup; it usually indicates which package is missing.
+
+### Minimal steps (summary)
+
+1. Put this repo under `ComfyUI/custom_nodes/ComfyUI-MotionCtrl/`
+2. `pip install -r requirements.txt`
+3. Put `motionctrl.pth` under `ComfyUI/models/checkpoints/`
+4. Restart ComfyUI
 
 ## Nodes
 

@@ -1,6 +1,6 @@
 {
-  "last_node_id": 6,
-  "last_link_id": 15,
+  "last_node_id": 7,
+  "last_link_id": 16,
   "nodes": [
     {
       "id": 1,
@@ -118,6 +118,7 @@
         7.5,
         800,
         true,
+        0,
         1,
         "https://chaojie.github.io/ComfyUI-MotionCtrl/tools/draw.html",
         false,
@@ -136,6 +137,41 @@
         { "name": "images", "type": "IMAGE", "link": 15 }
       ],
       "properties": { "Node name for S&R": "PreviewImage" }
+    },
+    {
+      "id": 7,
+      "type": "VHS_VideoCombine",
+      "pos": [1840, 450],
+      "size": [315, 539],
+      "flags": {},
+      "order": 6,
+      "mode": 0,
+      "inputs": [
+        { "name": "images", "type": "IMAGE", "link": 16 }
+      ],
+      "outputs": [],
+      "properties": { "Node name for S&R": "VHS_VideoCombine" },
+      "widgets_values": {
+        "frame_rate": 8,
+        "loop_count": 0,
+        "filename_prefix": "MotionCtrl",
+        "format": "video/h264-mp4",
+        "pingpong": false,
+        "save_image": true,
+        "crf": 20,
+        "save_metadata": true,
+        "audio_file": "",
+        "videopreview": {
+          "hidden": false,
+          "paused": false,
+          "params": {
+            "filename": "MotionCtrl.mp4",
+            "subfolder": "",
+            "type": "output",
+            "format": "video/h264-mp4"
+          }
+        }
+      }
     }
   ],
   "links": [
@@ -153,7 +189,8 @@
     [12, 4, 5, 5, 9, "RT"],
     [13, 4, 6, 5, 10, "NOISE_SHAPE"],
     [14, 2, 0, 5, 11, "IMAGE"],
-    [15, 5, 0, 6, 0, "IMAGE"]
+    [15, 5, 0, 6, 0, "IMAGE"],
+    [16, 5, 0, 7, 0, "IMAGE"]
   ],
   "groups": [],
   "config": {},
