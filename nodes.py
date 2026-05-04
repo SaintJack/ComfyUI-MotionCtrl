@@ -626,21 +626,24 @@ class MotionctrlSampleSimple:
                 dxs = np.convolve(np.pad(dxs, (pad, pad), mode="edge"), kernel, mode="valid")
                 dys = np.convolve(np.pad(dys, (pad, pad), mode="edge"), kernel, mode="valid")
 
-                warp_scale = 0.15
-                rot_scale = 0.12
+                warp_scale = 0.25
+                yy, xx = np.mgrid[0:256, 0:256].astype(np.float32)
+                anchor = np.power(1.0 - (yy / 255.0), 1.6)
+                sigma = 70.0
                 frames_np = []
                 for i in range(frame_length):
                     dx = float(dxs[i]) * warp_scale
-                    dy = float(dys[i]) * warp_scale
-                    angle = float(dxs[i]) * rot_scale
-                    M = cv2.getRotationMatrix2D((128, 128), angle, 1.0).astype(np.float32)
-                    M[0, 2] += dx
-                    M[1, 2] += dy
-                    warped = cv2.warpAffine(
+                    dy = float(dys[i]) * warp_scale * 0.25
+                    px, py = float(pts256_np[i, 0]), float(pts256_np[i, 1])
+                    alpha = np.exp(-(((xx - px) ** 2 + (yy - py) ** 2) / (2.0 * sigma * sigma))).astype(np.float32)
+                    w = (alpha * anchor).astype(np.float32)
+                    map_x = (xx + dx * w).astype(np.float32)
+                    map_y = (yy + dy * w).astype(np.float32)
+                    warped = cv2.remap(
                         img0,
-                        M,
-                        (256, 256),
-                        flags=cv2.INTER_LANCZOS4,
+                        map_x,
+                        map_y,
+                        interpolation=cv2.INTER_LANCZOS4,
                         borderMode=cv2.BORDER_REFLECT_101,
                     )
                     frames_np.append(warped)
