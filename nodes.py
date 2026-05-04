@@ -626,17 +626,18 @@ class MotionctrlSampleSimple:
                 dxs = np.convolve(np.pad(dxs, (pad, pad), mode="edge"), kernel, mode="valid")
                 dys = np.convolve(np.pad(dys, (pad, pad), mode="edge"), kernel, mode="valid")
 
-                warp_scale = 0.25
+                warp_scale = 0.75
                 yy, xx = np.mgrid[0:256, 0:256].astype(np.float32)
-                anchor = np.power(1.0 - (yy / 255.0), 1.6)
-                sigma = 70.0
+                anchor = np.power(1.0 - (yy / 255.0), 1.3)
+                sigma = 55.0
                 frames_np = []
                 for i in range(frame_length):
                     dx = float(dxs[i]) * warp_scale
-                    dy = float(dys[i]) * warp_scale * 0.25
+                    dy = float(dys[i]) * warp_scale * 0.45
                     px, py = float(pts256_np[i, 0]), float(pts256_np[i, 1])
                     alpha = np.exp(-(((xx - px) ** 2 + (yy - py) ** 2) / (2.0 * sigma * sigma))).astype(np.float32)
                     w = (alpha * anchor).astype(np.float32)
+                    w = np.clip(w * 1.4, 0.0, 1.0).astype(np.float32)
                     map_x = (xx + dx * w).astype(np.float32)
                     map_y = (yy + dy * w).astype(np.float32)
                     warped = cv2.remap(
