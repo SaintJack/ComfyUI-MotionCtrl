@@ -44,6 +44,13 @@ def _find_official_motionctrl_dir() -> Path | None:
             return candidate
     return None
 
+def _find_official_motionctrl_svd_dir() -> Path | None:
+    for parent in [PLUGIN_DIR] + list(PLUGIN_DIR.parents)[:6]:
+        candidate = parent / "official" / "MotionCtrl_svd"
+        if candidate.exists() and candidate.is_dir():
+            return candidate
+    return None
+
 def _list_camera_preset_options() -> list[str]:
     legacy = [
         "U", "D", "L", "R",
@@ -985,6 +992,206 @@ class ImageSelector:
         return (images, )
 
 
+class MotionctrlSVDLoader:
+    @classmethod
+    def INPUT_TYPES(s):
+        ckpts = folder_paths.get_filename_list("checkpoints")
+        return {
+            "required": {
+                "ckpt_name": (ckpts, {"default": "motionctrl_svd.ckpt"}) if ckpts else ("STRING", {"default": "motionctrl_svd.ckpt"}),
+                "num_frames": ("INT", {"default": 14, "min": 2, "max": 64}),
+                "num_steps": ("INT", {"default": 25, "min": 1, "max": 100}),
+                "device": (["cuda", "cpu"], {"default": "cuda"}),
+            },
+            "optional": {
+                "svd_repo_path": ("STRING", {"default": ""}),
+                "config_relpath": ("STRING", {"default": "configs/inference/config_motionctrl_cmcm.yaml"}),
+            }
+        }
+
+    RETURN_TYPES = ("MOTIONCTRL_SVD",)
+    FUNCTION = "load"
+    CATEGORY = "motionctrl_svd"
+
+    def load(self, ckpt_name: str, num_frames: int, num_steps: int, device: str, svd_repo_path: str = "", config_relpath: str = "configs/inference/config_motionctrl_cmcm.yaml"):
+        ckpt_path = folder_paths.get_full_path("checkpoints", ckpt_name) if hasattr(folder_paths, "get_full_path") else None
+        if not ckpt_path:
+            ckpt_path = ckpt_name
+        if not os.path.exists(ckpt_path):
+            raise FileNotFoundError(f"MotionCtrl+SVD checkpoint not found: {ckpt_path}")
+
+        repo_dir = Path(svd_repo_path) if svd_repo_path else (_find_official_motionctrl_svd_dir() or None)
+        if repo_dir is None or not repo_dir.exists():
+            raise FileNotFoundError("MotionCtrl_svd repo not found. Set svd_repo_path to the local MotionCtrl svd-branch directory.")
+
+        sys.path.insert(0, str(repo_dir))
+        from omegaconf import OmegaConf as _OmegaConf
+        from sgm.util import instantiate_from_config as _instantiate_from_config
+
+        config_path = repo_dir / config_relpath
+        if not config_path.exists():
+            raise FileNotFoundError(f"SVD config not found: {config_path}")
+
+        cfg = _OmegaConf.load(str(config_path))
+        cfg.model.params.ckpt_path = ckpt_path
+        if device == "cuda":
+            cfg.model.params.conditioner_config.params.emb_models[0].params.open_clip_embedding_config.params.init_device = device
+        cfg.model.params.sampler_config.params.num_steps = int(num_steps)
+        cfg.model.params.sampler_config.params.guider_config.params.num_frames = int(num_frames)
+
+        model = _instantiate_from_config(cfg.model).to(device).eval()
+        return ({"model": model, "repo_dir": str(repo_dir), "num_frames": int(num_frames), "num_steps": int(num_steps), "device": device},)
+
+
+class MotionctrlSVDSample:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "pipeline": ("MOTIONCTRL_SVD",),
+                "init_image": ("IMAGE",),
+                "camera": ("STRING", {"default": "[[1,0,0,0,0,1,0,0,0,0,1,0]]"}),
+                "fps_id": ("INT", {"default": 6, "min": 1, "max": 60}),
+                "motion_bucket_id": ("INT", {"default": 127, "min": 0, "max": 255}),
+                "cond_aug": ("FLOAT", {"default": 0.02, "min": 0.0, "max": 0.5, "step": 0.01}),
+                "seed": ("INT", {"default": 23, "min": 0, "max": 2**31-1}),
+                "decoding_t": ("INT", {"default": 1, "min": 1, "max": 32}),
+            },
+            "optional": {
+                "speed": ("FLOAT", {"default": 1.0, "min": 0.1, "max": 3.0, "step": 0.05}),
+                "resize_to_576x1024": ("BOOLEAN", {"default": False}),
+            }
+        }
+
+    RETURN_TYPES = ("IMAGE",)
+    FUNCTION = "run"
+    CATEGORY = "motionctrl_svd"
+
+    def run(self, pipeline, init_image: torch.Tensor, camera: str, fps_id: int, motion_bucket_id: int, cond_aug: float, seed: int, decoding_t: int, speed: float = 1.0, resize_to_576x1024: bool = False):
+        model = pipeline["model"]
+        device = pipeline["device"]
+        num_frames = int(pipeline["num_frames"])
+
+        sys.path.insert(0, pipeline["repo_dir"])
+        from einops import rearrange, repeat
+
+        def to_relative_RT2(org_pose: np.ndarray, keyframe_idx: int = 0, keyframe_zero: bool = False) -> np.ndarray:
+            org_pose = org_pose.reshape(-1, 3, 4)
+            R_dst = org_pose[:, :, :3]
+            T_dst = org_pose[:, :, 3:]
+            R_src = np.repeat(R_dst[keyframe_idx: keyframe_idx + 1], org_pose.shape[0], axis=0)
+            T_src = np.repeat(T_dst[keyframe_idx: keyframe_idx + 1], org_pose.shape[0], axis=0)
+            R_src_inv = np.transpose(R_src, (0, 2, 1))
+            R_rel = R_dst @ R_src_inv
+            T_rel = T_dst - R_rel @ T_src
+            RT_rel = np.concatenate([R_rel, T_rel], axis=-1).reshape(-1, 12)
+            if keyframe_zero:
+                RT_rel[keyframe_idx] = np.zeros_like(RT_rel[keyframe_idx])
+            return RT_rel
+
+        def get_unique_embedder_keys_from_conditioner(conditioner):
+            return list(set([x.input_key for x in conditioner.embedders]))
+
+        def get_batch(keys, value_dict, N, T, device):
+            batch = {}
+            batch_uc = {}
+            for key in keys:
+                if key == "fps_id":
+                    batch[key] = torch.tensor([value_dict["fps_id"]]).to(device).repeat(int(math.prod(N)))
+                elif key == "motion_bucket_id":
+                    batch[key] = torch.tensor([value_dict["motion_bucket_id"]]).to(device).repeat(int(math.prod(N)))
+                elif key == "cond_aug":
+                    batch[key] = repeat(torch.tensor([value_dict["cond_aug"]]).to(device), "1 -> b", b=math.prod(N))
+                elif key == "cond_frames":
+                    batch[key] = repeat(value_dict["cond_frames"], "1 ... -> b ...", b=N[0])
+                elif key == "cond_frames_without_noise":
+                    batch[key] = repeat(value_dict["cond_frames_without_noise"], "1 ... -> b ...", b=N[0])
+                else:
+                    batch[key] = value_dict[key]
+            if T is not None:
+                batch["num_video_frames"] = T
+            for key in batch.keys():
+                if key not in batch_uc and isinstance(batch[key], torch.Tensor):
+                    batch_uc[key] = torch.clone(batch[key])
+            return batch, batch_uc
+
+        if init_image.ndim == 3:
+            init_image = init_image.unsqueeze(0)
+        if init_image.shape[-1] != 3:
+            raise ValueError(f"init_image must be RGB IMAGE, got shape {tuple(init_image.shape)}")
+
+        img = init_image[0].detach().cpu().numpy()
+        img = np.clip(img, 0.0, 1.0)
+        if resize_to_576x1024:
+            img = cv2.resize(img, (1024, 576), interpolation=cv2.INTER_AREA)
+        h, w = img.shape[0], img.shape[1]
+        h2, w2 = h - (h % 64), w - (w % 64)
+        if (h2, w2) != (h, w):
+            img = cv2.resize(img, (w2, h2), interpolation=cv2.INTER_AREA)
+            h, w = h2, w2
+        img_t = torch.from_numpy(img).permute(2, 0, 1).unsqueeze(0).to(device=device, dtype=torch.float32)
+        img_t = img_t * 2.0 - 1.0
+
+        rt = np.array(json.loads(camera), dtype=np.float32).reshape(-1, 12)
+        if rt.shape[0] != num_frames:
+            if rt.shape[0] < num_frames:
+                pad = np.repeat(rt[-1:], num_frames - rt.shape[0], axis=0)
+                rt = np.concatenate([rt, pad], axis=0)
+            else:
+                rt = rt[:num_frames]
+        rt = rt.reshape(-1, 3, 4)
+        rt[:, :, -1] = rt[:, :, -1] * np.array([3.0, 1.0, 4.0], dtype=np.float32) * float(speed)
+        rt = to_relative_RT2(rt)
+        RT = torch.tensor(rt, dtype=torch.float32, device=device).unsqueeze(0).repeat(2, 1, 1)
+
+        torch.manual_seed(int(seed))
+        value_dict = {
+            "motion_bucket_id": int(motion_bucket_id),
+            "fps_id": int(fps_id),
+            "cond_aug": float(cond_aug),
+            "cond_frames_without_noise": img_t,
+            "cond_frames": img_t + float(cond_aug) * torch.randn_like(img_t),
+        }
+
+        F = 8
+        C = 4
+        shape = (num_frames, C, h // F, w // F)
+
+        with torch.no_grad():
+            with torch.autocast(device if device != "cpu" else "cpu"):
+                keys = get_unique_embedder_keys_from_conditioner(model.conditioner)
+                batch, batch_uc = get_batch(keys, value_dict, [1, num_frames], T=num_frames, device=device)
+                c, uc = model.conditioner.get_unconditional_conditioning(
+                    batch,
+                    batch_uc=batch_uc,
+                    force_uc_zero_embeddings=["cond_frames", "cond_frames_without_noise"],
+                )
+
+                for k in ["crossattn", "concat"]:
+                    uc[k] = repeat(uc[k], "b ... -> b t ...", t=num_frames)
+                    uc[k] = rearrange(uc[k], "b t ... -> (b t) ...", t=num_frames)
+                    c[k] = repeat(c[k], "b ... -> b t ...", t=num_frames)
+                    c[k] = rearrange(c[k], "b t ... -> (b t) ...", t=num_frames)
+
+                additional_model_inputs = {
+                    "image_only_indicator": torch.zeros(2, num_frames, device=device),
+                    "num_video_frames": batch["num_video_frames"],
+                    "RT": RT,
+                }
+
+                def denoiser(input, sigma, cond):
+                    return model.denoiser(model.model, input, sigma, cond, **additional_model_inputs)
+
+                randn = torch.randn(shape, device=device)
+                samples_z = model.sampler(denoiser, randn, cond=c, uc=uc)
+                model.en_and_decode_n_samples_a_time = int(decoding_t)
+                samples_x = model.decode_first_stage(samples_z)
+                samples = torch.clamp((samples_x + 1.0) / 2.0, 0.0, 1.0)
+
+        samples = rearrange(samples, "(b t) c hh ww -> t hh ww c", t=num_frames).contiguous()
+        return (samples.detach().cpu(),)
+
+
 NODE_CLASS_MAPPINGS = {
     "Motionctrl Sample":MotionctrlSample,
     "Motionctrl Sample Simple":MotionctrlSampleSimple,
@@ -994,4 +1201,6 @@ NODE_CLASS_MAPPINGS = {
     "Select Image Indices": ImageSelector,
     "Load Motionctrl Checkpoint": MotionctrlLoader,
     "Motionctrl Cond": MotionctrlCond,
+    "Load Motionctrl+SVD Checkpoint": MotionctrlSVDLoader,
+    "Motionctrl+SVD Sample": MotionctrlSVDSample,
 }

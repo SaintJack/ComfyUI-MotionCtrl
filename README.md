@@ -95,6 +95,11 @@ Utilities:
 - `Select Image Indices`: select frames from IMAGE sequence
 - `Motionctrl Sample`: advanced sampling node (kept for compatibility)
 
+SVD (Image-to-Video) nodes:
+
+- `Load Motionctrl+SVD Checkpoint`: load MotionCtrl+SVD checkpoint (`motionctrl_svd.ckpt`) and build the SVD pipeline
+- `Motionctrl+SVD Sample`: image-to-video sampling with camera pose conditioning (RT) and SVD motion controls (`fps_id`, `motion_bucket_id`)
+
 ## Usage
 
 ### Quickstart (base workflow)
@@ -133,6 +138,22 @@ Notes:
 
 - `init_image` is not compatible with `context_overlap` in current implementation (use either one).
 - This provides a strong first-frame constraint; subject consistency is still affected by prompt/trajectory strength and model limits.
+
+### MotionCtrl + SVD (Image-to-Video)
+
+This mode uses the official MotionCtrl `svd` branch pipeline (image-to-video), which is much better at preserving the input subject identity.
+
+Requirements:
+
+- Put `motionctrl_svd.ckpt` under `ComfyUI/models/checkpoints/` (same folder as other checkpoints).
+- The SVD pipeline code must be available on disk. This repo supports auto-discovery if you have:
+  - `official/MotionCtrl_svd/` (the MotionCtrl repository cloned with `--branch svd`)
+  - Or set `svd_repo_path` explicitly in `Load Motionctrl+SVD Checkpoint`.
+- Install the extra Python dependencies required by the SVD pipeline (refer to `official/MotionCtrl_svd/requirements.txt`).
+
+Workflow:
+
+- `workflow_motionctrl_svd_i2v_camera.json`
 
 ### Object Motion Control example (flower swaying in the wind)
 
