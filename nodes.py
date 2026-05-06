@@ -1034,6 +1034,26 @@ class MotionctrlSVDLoader:
         sys.path.insert(0, str(repo_dir))
         from omegaconf import OmegaConf as _OmegaConf
         from sgm.util import instantiate_from_config as _instantiate_from_config
+        import importlib
+        import types
+
+        try:
+            import xformers as _xformers  # noqa: F401
+        except Exception:
+            import torch.nn.functional as _F
+
+            class _Ops:
+                @staticmethod
+                def memory_efficient_attention(q, k, v, attn_bias=None, op=None, **kwargs):
+                    return _F.scaled_dot_product_attention(q, k, v, attn_mask=None, dropout_p=0.0, is_causal=False)
+
+            _dummy = types.SimpleNamespace(__version__="0.0.0", ops=_Ops())
+            for modname in ("sgm.modules.diffusionmodules.model", "sgm.modules.attention"):
+                m = importlib.import_module(modname)
+                if not hasattr(m, "xformers"):
+                    setattr(m, "xformers", _dummy)
+                if hasattr(m, "XFORMERS_IS_AVAILABLE"):
+                    setattr(m, "XFORMERS_IS_AVAILABLE", True)
 
         config_path = repo_dir / config_relpath
         if not config_path.exists():
