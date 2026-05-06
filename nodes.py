@@ -39,16 +39,21 @@ def _plugin_path(*parts: str) -> str:
 
 def _find_official_motionctrl_dir() -> Path | None:
     for parent in [PLUGIN_DIR] + list(PLUGIN_DIR.parents)[:6]:
-        candidate = parent / "official" / "MotionCtrl"
-        if candidate.exists() and candidate.is_dir():
-            return candidate
+        for candidate in (parent / "MotionCtrl", parent / "official" / "MotionCtrl"):
+            if candidate.exists() and candidate.is_dir():
+                return candidate
     return None
 
 def _find_official_motionctrl_svd_dir() -> Path | None:
+    env_path = os.environ.get("MOTIONCTRL_SVD_REPO") or os.environ.get("MOTIONCTRL_SVD_PATH")
+    if env_path:
+        p = Path(env_path)
+        if p.exists() and p.is_dir():
+            return p
     for parent in [PLUGIN_DIR] + list(PLUGIN_DIR.parents)[:6]:
-        candidate = parent / "official" / "MotionCtrl_svd"
-        if candidate.exists() and candidate.is_dir():
-            return candidate
+        for candidate in (parent / "MotionCtrl_svd", parent / "official" / "MotionCtrl_svd"):
+            if candidate.exists() and candidate.is_dir():
+                return candidate
     return None
 
 def _list_camera_preset_options() -> list[str]:
@@ -995,10 +1000,9 @@ class ImageSelector:
 class MotionctrlSVDLoader:
     @classmethod
     def INPUT_TYPES(s):
-        ckpts = folder_paths.get_filename_list("checkpoints")
         return {
             "required": {
-                "ckpt_name": (ckpts, {"default": "motionctrl_svd.ckpt"}) if ckpts else ("STRING", {"default": "motionctrl_svd.ckpt"}),
+                "ckpt_name": ("STRING", {"default": "motionctrl_svd.ckpt"}),
                 "num_frames": ("INT", {"default": 14, "min": 2, "max": 64}),
                 "num_steps": ("INT", {"default": 25, "min": 1, "max": 100}),
                 "device": (["cuda", "cpu"], {"default": "cuda"}),
@@ -1014,9 +1018,12 @@ class MotionctrlSVDLoader:
     CATEGORY = "motionctrl_svd"
 
     def load(self, ckpt_name: str, num_frames: int, num_steps: int, device: str, svd_repo_path: str = "", config_relpath: str = "configs/inference/config_motionctrl_cmcm.yaml"):
-        ckpt_path = folder_paths.get_full_path("checkpoints", ckpt_name) if hasattr(folder_paths, "get_full_path") else None
-        if not ckpt_path:
-            ckpt_path = ckpt_name
+        ckpt_path = ckpt_name
+        if hasattr(folder_paths, "get_full_path"):
+            if not (os.path.isabs(ckpt_name) or ("/" in ckpt_name) or ("\\" in ckpt_name)):
+                resolved = folder_paths.get_full_path("checkpoints", ckpt_name)
+                if resolved:
+                    ckpt_path = resolved
         if not os.path.exists(ckpt_path):
             raise FileNotFoundError(f"MotionCtrl+SVD checkpoint not found: {ckpt_path}")
 
@@ -1058,7 +1065,7 @@ class MotionctrlSVDSample:
                 "decoding_t": ("INT", {"default": 1, "min": 1, "max": 32}),
             },
             "optional": {
-                "speed": ("FLOAT", {"default": 1.0, "min": 0.1, "max": 3.0, "step": 0.05}),
+                "speed": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 3.0, "step": 0.05}),
                 "resize_to_576x1024": ("BOOLEAN", {"default": False}),
             }
         }
