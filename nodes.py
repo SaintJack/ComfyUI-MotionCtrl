@@ -1213,7 +1213,10 @@ class MotionctrlSVDSample:
                 samples_z = model.sampler(denoiser, randn, cond=c, uc=uc)
                 model.en_and_decode_n_samples_a_time = int(decoding_t)
                 samples_x = model.decode_first_stage(samples_z)
-                samples = torch.clamp((samples_x + 1.0) / 2.0, 0.0, 1.0)
+                samples_x = samples_x.float()
+                samples = (samples_x + 1.0) / 2.0
+                samples = torch.nan_to_num(samples, nan=0.0, posinf=1.0, neginf=0.0)
+                samples = torch.clamp(samples, 0.0, 1.0)
 
         if samples.ndim == 4:
             bt, c0, hh, ww = samples.shape
@@ -1232,6 +1235,10 @@ class MotionctrlSVDSample:
             samples = samples[0]
         else:
             raise ValueError(f"Unexpected decoded sample ndim={samples.ndim}, shape={tuple(samples.shape)}")
+        if torch.isnan(samples).any() or torch.isinf(samples).any():
+            samples = torch.nan_to_num(samples, nan=0.0, posinf=1.0, neginf=0.0)
+        if float(samples.max() - samples.min()) < 1e-6:
+            print(f"Motionctrl+SVD Sample: nearly-constant output min={float(samples.min()):.6f} max={float(samples.max()):.6f}")
         return (samples.detach().cpu(),)
 
 
