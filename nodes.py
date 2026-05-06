@@ -1215,7 +1215,23 @@ class MotionctrlSVDSample:
                 samples_x = model.decode_first_stage(samples_z)
                 samples = torch.clamp((samples_x + 1.0) / 2.0, 0.0, 1.0)
 
-        samples = rearrange(samples, "(b t) c hh ww -> t hh ww c", t=num_frames).contiguous()
+        if samples.ndim == 4:
+            bt, c0, hh, ww = samples.shape
+            if bt == num_frames:
+                samples = rearrange(samples, "t c h w -> t h w c").contiguous()
+            elif bt % num_frames == 0:
+                samples = rearrange(samples, "(b t) c h w -> b t h w c", t=num_frames).contiguous()
+                samples = samples[0]
+            else:
+                raise ValueError(f"Unexpected decoded sample shape: {tuple(samples.shape)} (num_frames={num_frames})")
+        elif samples.ndim == 5:
+            b0, t0, c0, hh, ww = samples.shape
+            if t0 != num_frames:
+                raise ValueError(f"Unexpected decoded sample shape: {tuple(samples.shape)} (num_frames={num_frames})")
+            samples = rearrange(samples, "b t c h w -> b t h w c").contiguous()
+            samples = samples[0]
+        else:
+            raise ValueError(f"Unexpected decoded sample ndim={samples.ndim}, shape={tuple(samples.shape)}")
         return (samples.detach().cpu(),)
 
 
